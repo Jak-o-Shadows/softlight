@@ -31,3 +31,11 @@
 # Debug files
 *.dSYM/
 *.su
+
+#Other C
+*.d
+*.map
+*.bin
+#
+
+

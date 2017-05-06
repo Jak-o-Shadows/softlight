@@ -4,13 +4,14 @@
 #include <libopencm3/stm32/usart.h>
 #include <libopencm3/stm32/pwr.h>
 #include <libopencm3/cm3/nvic.h>
-#include <libopencm3/stm32/timer.h>
-#include <libopencm3/stm32/dac.h>
-#include <libopencm3/stm32/dma.h>
+//#include <libopencm3/stm32/timer.h>
+//#include <libopencm3/stm32/dac.h>
+//#include <libopencm3/stm32/dma.h>
 
 
 #include "stdint.h"
 #include "stdbool.h"
+#include <string.h> //For memcpy
 
 
 
@@ -20,17 +21,17 @@
 /* Globals */
 uint8_t waveform[256];
 
-uint8_t yearBase = 0;
-uint8_t monthBase = 0;
-uint8_t dayBase = 0;
-uint8_t hourBase = 0;
-uint8_t minBase = 0;
+uint8_t yearBase = 2017;
+uint8_t monthBase = 03;
+uint8_t dayBase = 19;
+uint8_t hourBase = 14;
+uint8_t minBase = 30;
 uint8_t secBase = 0;
 uint8_t dayOfWeekBase = 0;
 
-uint8_t year = 0;
-uint8_t month = 0;
-uint8_t day = 0;
+uint8_t year = 2017;
+uint8_t month = 03;
+uint8_t day = 19;
 uint8_t hour = 0;
 uint8_t min = 0;
 uint8_t sec = 0;
@@ -39,14 +40,26 @@ uint8_t dayOfWeek = 0;
 const uint8_t monthLengths[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
 
-uint8_t alarmDays = 0; //1 if true. LSB is sunday, MSB-1 is saturday
-uint8_t hourAlarm = 0;
-uint8_t minAlarm = 0;
+uint8_t alarmDays = 0xFF; //1 if true. LSB is sunday, MSB-1 is saturday
+uint8_t hourAlarm = 06;
+uint8_t minAlarm = 30;
 uint8_t secAlarm = 0;
 
 
 uint8_t alarmState;
 
+
+
+
+uint8_t nextSend = 'a';
+uint8_t messageLen = 0;
+#define SENDBUFLEN 64
+uint8_t message[64];
+uint8_t messageIndex = 0;
+
+uint8_t rxIndex = 0;
+#define RECVBUFLEN 5
+uint16_t rxBuf[RECVBUFLEN];
 
 
 static void clock_setup(void)
@@ -56,35 +69,37 @@ static void clock_setup(void)
 	/* Enable GPIOC clock. */
 	rcc_periph_clock_enable(RCC_GPIOC);
 
-	/* Enable clocks for GPIO port A (for GPIO_USART1_TX) and USART1. */
+	/* Enable clocks for GPIO port A (for GPIO_USART2_TX) and USART2. */
 	rcc_periph_clock_enable(RCC_GPIOA);
-	rcc_periph_clock_enable(RCC_USART1);
+	rcc_periph_clock_enable(RCC_USART2);
+	rcc_periph_clock_enable(RCC_AFIO);
 	
-	rcc_periph_clock_enable(RCC_TIM2);
-	rcc_periph_reset_pulse(RST_TIM2);
-	
+
 	rcc_periph_clock_enable(RCC_DMA2);
 
-	rcc_periph_clock_enable(RCC_DAC);
-	
 }
 
 static void usart_setup(void)
 {
-	/* Setup GPIO pin GPIO_USART1_TX/GPIO9 on GPIO port A for transmit. */
-	gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_50_MHZ,
-		      GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, GPIO_USART1_TX);
+	rcc_periph_clock_enable(RCC_GPIOA);
+	rcc_periph_clock_enable(RCC_USART2);
 
-	/* Setup UART parameters. */
-	usart_set_baudrate(USART1, 38400);
-	usart_set_databits(USART1, 8);
-	usart_set_stopbits(USART1, USART_STOPBITS_1);
-	usart_set_mode(USART1, USART_MODE_TX);
-	usart_set_parity(USART1, USART_PARITY_NONE);
-	usart_set_flow_control(USART1, USART_FLOWCONTROL_NONE);
+	gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_50_MHZ, GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, GPIO_USART2_TX); //USART 2 TX is A2
+	gpio_set_mode(GPIOA, GPIO_MODE_INPUT, GPIO_CNF_INPUT_FLOAT, GPIO_USART2_RX); //USART 2 RX is A3
 
-	/* Finally enable the USART. */
-	usart_enable(USART1);
+	usart_set_baudrate(USART2, 9600);
+	usart_set_databits(USART2, 8);
+	usart_set_stopbits(USART2, USART_STOPBITS_1);
+	usart_set_parity(USART2, USART_PARITY_NONE);
+	usart_set_mode(USART2, USART_MODE_TX_RX);
+	usart_set_flow_control(USART2, USART_FLOWCONTROL_NONE);
+	//enable interrupt rx
+	USART_CR1(USART2) |= USART_CR1_RXNEIE;
+	//enable tx interrupt, as we have something to say at the start
+	USART_CR1(USART2) |= USART_CR1_TXEIE;
+
+	
+	usart_enable(USART2);
 }
 
 static void gpio_setup(void)
@@ -108,55 +123,18 @@ static void nvic_setup(void)
 	/* Without this the RTC interrupt routine will never be called. */
 	nvic_enable_irq(NVIC_RTC_IRQ);
 	nvic_set_priority(NVIC_RTC_IRQ, 1);
-}
-
-
-
-static void timer_setup(void) {
-	timer_set_mode(TIM2, TIM_CR1_CKD_CK_INT, TIM_CR1_CMS_EDGE, TIM_CR1_DIR_UP);
-	timer_continuous_mode(TIM2);
-	timer_set_period(TIM2, 1150);
-	timer_disable_oc_output(TIM2, TIM_OC2 | TIM_OC3 | TIM_OC4);
-	timer_enable_oc_output(TIM2, TIM_OC1);
-	timer_disable_oc_clear(TIM2, TIM_OC1);
-	timer_disable_oc_preload(TIM2, TIM_OC1);
-	timer_set_oc_slow_mode(TIM2, TIM_OC1);
-	timer_set_oc_mode(TIM2, TIM_OC1, TIM_OCM_TOGGLE);
-	timer_set_oc_value(TIM2, TIM_OC1, 500);
-	timer_disable_preload(TIM2);
-
-	timer_set_master_mode(TIM2, TIM_CR2_MMS_COMPARE_OC3REF);
-	timer_enable_counter(TIM2);
-}
-
-
-
-static void dacDMASetup(void){
-	const uint32_t dma = DMA2;
-	const uint32_t ch = DMA_CHANNEL3;
 	
-    dac_set_waveform_generation(DAC_CR_WAVE1_DIS);
-    dac_dma_disable(CHANNEL_1);
-    dma_disable_channel(dma, ch);
-    dma_channel_reset(dma, ch);
-
-    dma_enable_circular_mode(dma, ch);
-    dma_set_peripheral_address(dma, ch, (uint32_t) &DAC_DHR8R1);
-    dma_set_memory_address(dma, ch, (uint32_t) &waveform);
-    dma_set_memory_size(dma, ch, DMA_CCR_MSIZE_8BIT);
-    dma_set_peripheral_size(dma, ch, DMA_CCR_PSIZE_8BIT);
-    dma_set_read_from_memory(dma, ch);
-    dma_set_number_of_data(dma, ch, 256);
-
-    dma_set_priority(dma, ch, DMA_CCR_PL_VERY_HIGH);
-
-    dma_enable_memory_increment_mode(dma, ch);
-    dma_disable_peripheral_increment_mode(dma, ch);
-
-    dac_dma_enable(CHANNEL_1);
-    dma_enable_channel(dma, ch);
-    
+	
+	nvic_enable_irq(NVIC_USART2_IRQ);
+	nvic_set_priority(NVIC_USART2_IRQ, 2);
 }
+
+
+
+
+
+
+
 
 static bool isLeapYear(uint8_t yearLoc){
 	if (yearLoc % 400 != 0){
@@ -238,7 +216,7 @@ static void setAlarm(uint8_t h, uint8_t m, uint8_t s){
 }
 
 
-static void setAlarmIfDay(){
+static void setAlarmIfDay(void){
 	//If the alarm is on the day of week, set the alarm
 	
 	alarmState = 0x00; //disable the alarm - FIX ME FIX ME doesn't actually turn it off
@@ -248,6 +226,28 @@ static void setAlarmIfDay(){
 		setAlarm(hourAlarm, minAlarm, secAlarm);
 	}
 }
+
+
+
+void setSendData(uint16_t data[], uint16_t dataLength){
+	// dataLength < SENDBUFLENGTH
+	
+	
+	while (messageIndex>0) {}; //stall while waiting for TX to finish sending
+	//	the higher priority interrupt usart interrupt should mean this isn't
+	//	too long.	
+	messageLen = dataLength;
+	memcpy(message, data, dataLength);
+	/* Enable transmit interrupt so it sends back the data. */
+	USART_CR1(USART2) |= USART_CR1_TXEIE;	
+	
+	
+}
+
+
+
+
+
 
 
 int main(void)
@@ -271,6 +271,10 @@ int main(void)
 	
 	clock_setup();
 	gpio_setup();
+	
+	/* Setup the RTC interrupt. */
+	nvic_setup();
+	
 	usart_setup();
 	//timer_setup();
 	//dacDMASetup();
@@ -282,67 +286,88 @@ int main(void)
 	 */
 	rtc_auto_awake(RCC_LSE, 0x7fff);
 
-	/* Setup the RTC interrupt. */
-	nvic_setup();
+
 
 	/* Enable the RTC interrupt to occur off the SEC flag. */
 	rtc_interrupt_enable(RTC_SEC);
 	rtc_interrupt_enable(RTC_ALR);
 	rtc_set_counter_val(0x0000);
 
-
-	uint16_t data;
-
-	minAlarm = 1;
+	//set initial alarm
+	minAlarm = 50;
 	alarmDays = 0b01111111;
 	setAlarm(hourAlarm, minAlarm, secAlarm);
 
-	//Set the alarm
+	//Set start message
+	uint16_t msg[] = {'s', 't', 'a', 'r', 't', '\n'};
+	setSendData(msg, 6);
+	
+	
 
 	while (1) {
-		data = usart_recv_blocking(USART1);
-		switch (data) {
-			case 's':
-				//setting the time
-				data = usart_recv_blocking(USART1);
-				yearBase = (uint8_t) data >> 8;
-				monthBase = (uint8_t) data;
-				
-				data = usart_recv_blocking(USART1);
-				dayBase = (uint8_t) data >> 8;
-				hourBase = (uint8_t) data;
-				
-				data = usart_recv_blocking(USART1);
-				minBase = (uint8_t) data >> 8;
-				secBase = (uint8_t) data;
-				
-				data = usart_recv_blocking(USART1);
-				dayOfWeekBase = (uint8_t) data >> 9;
-				
-				//Set the counter value to zero.
-				rtc_set_counter_val(0x0000);
-				
-				year = yearBase;
-				month = monthBase;
-				day = dayBase;
-				dayOfWeek = dayOfWeekBase;
-				
-				setAlarmIfDay();
-				
-				
-				break;
-			default:
-				//no correct message
-				usart_send_blocking(USART1, 1);
-			
-			
-		}
-		
+		__asm__("nop");
+
 	}
 
 	return 0;
 }
 
+
+
+
+
+void handleMessage(uint16_t msgBuf[]){
+	uint16_t data = msgBuf[0];
+	switch (data) {
+		case 's':
+			//setting the time
+			data = msgBuf[1];
+			yearBase = (uint8_t) data >> 8;
+			monthBase = (uint8_t) data;
+			
+			data = msgBuf[2];
+			dayBase = (uint8_t) data >> 8;
+			hourBase = (uint8_t) data;
+			
+			data = msgBuf[3];
+			minBase = (uint8_t) data >> 8;
+			secBase = (uint8_t) data;
+			
+			data = msgBuf[4];
+			dayOfWeekBase = (uint8_t) data >> 9;
+			
+			//Set the counter value to zero.
+			rtc_set_counter_val(0x0000);
+			
+			year = yearBase;
+			month = monthBase;
+			day = dayBase;
+			dayOfWeek = dayOfWeekBase;
+			
+			setAlarmIfDay();
+			break;
+		case 'a':
+			//setting alarm time
+			data = msgBuf[1];
+			hourAlarm = (uint8_t) data >> 8;
+			minAlarm = (uint8_t) data;
+			
+			data = msgBuf[2];
+			secAlarm = (uint8_t) data >> 8;
+			alarmDays = (uint8_t) data;
+			
+		default:
+			//no correct message
+			{	//C does not allow variable declations right after a label (ie. :)
+			uint16_t msg[] = {'E', 'R', 'R', 'O', 'R', ':', 'N', 'o', 't', ' ', 'c', 'o', 'r', 'r', 'e', 'c', 't', ' ', 'm', 's', 'g'};
+			setSendData(msg, 21);
+			}	
+	}
+		
+	
+	
+	
+}
 
 
 
@@ -368,25 +393,25 @@ void rtc_isr(void)
 		min = (c % 3600)/60 + minBase;
 		sec = (c % 3600) % 60 + secBase;
 		
-		usart_send_blocking(USART1, 't');
-		usart_send_blocking(USART1, (uint16_t) hour >> 8);
-		usart_send_blocking(USART1, (uint16_t) hour);
-		usart_send_blocking(USART1, ':');
-		usart_send_blocking(USART1, (uint16_t) min);
-		usart_send_blocking(USART1, ':');
-		usart_send_blocking(USART1, (uint16_t) sec);
-		usart_send_blocking(USART1, '\n');
+		//usart_send_blocking(USART2, 't');
+		//usart_send_blocking(USART2, (uint16_t) hour >> 8);
+		//usart_send_blocking(USART2, (uint16_t) hour);
+		//usart_send_blocking(USART2, ':');
+		//usart_send_blocking(USART2, (uint16_t) min);
+		//usart_send_blocking(USART2, ':');
+		//usart_send_blocking(USART2, (uint16_t) sec);
+		//usart_send_blocking(USART2, '\n');
 
 
-		/* Display the current counter value in binary via USART1. */
+		/* Display the current counter value in binary via USART2. */
 		for (j = 0; j < 32; j++) {
 			if ((c & (0x80000000 >> j)) != 0) {
-				usart_send_blocking(USART1, '1');
+		//		usart_send_blocking(USART2, '1');
 			} else {
-				usart_send_blocking(USART1, '0');
+		//		usart_send_blocking(USART2, '0');
 			}
 		}
-		usart_send_blocking(USART1, '\n');
+		//usart_send_blocking(USART2, '\n');
 		
 		
 		
@@ -412,7 +437,7 @@ void rtc_isr(void)
 				alarmState = 0x1;
 				//Set the alarm for 5 minutes
 				uint32_t now = rtc_get_counter_val();
-				rtc_set_alarm_time(now + 5*60);
+				rtc_set_alarm_time(now + 30*60);
 				break;
 			case 1:
 				gpio_clear(GPIOA, GPIO7);
@@ -422,10 +447,48 @@ void rtc_isr(void)
 		
 	}
 
-
-	
-	
-	
-
-	
 }
+
+
+
+void usart2_isr(void)
+{
+
+	/* Check if we were called because of RXNE. */
+	if (((USART_CR1(USART2) & USART_CR1_RXNEIE) != 0) &&
+	    ((USART_SR(USART2) & USART_SR_RXNE) != 0)) {
+
+		/* Indicate that we got data. */
+		//gpio_toggle(GPIOC, GPIO13);
+
+		/* Retrieve the data from the peripheral. */
+		rxBuf[rxIndex] = usart_recv(USART2);
+		rxIndex++;
+		if (rxIndex>=RECVBUFLEN){
+			handleMessage(rxBuf);
+			rxIndex = 0;
+		}
+	}
+
+	/* Check if we were called because of TXE. */
+	if (((USART_CR1(USART2) & USART_CR1_TXEIE) != 0) &&
+	    ((USART_SR(USART2) & USART_SR_TXE) != 0)) {
+
+		/* Indicate that we are sending out data. */
+		// gpio_toggle(GPIOA, GPIO7);
+
+		/* Put data into the transmit register. */
+		usart_send(USART2, nextSend);
+		
+		messageIndex++;
+		if (messageIndex >= messageLen){
+			messageIndex = 0;
+			/* Disable the TXE interrupt as we don't need it anymore. */
+			USART_CR1(USART2) &= ~USART_CR1_TXEIE;
+		}
+		nextSend = message[messageIndex];
+	}
+}
+
+
+

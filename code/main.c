@@ -24,25 +24,27 @@ uint8_t waveform[256];
 uint8_t yearBase = 2017;
 uint8_t monthBase = 03;
 uint8_t dayBase = 19;
-uint8_t hourBase = 14;
-uint8_t minBase = 30;
+uint8_t hourBase = 6;
+uint8_t minBase = 20;
 uint8_t secBase = 0;
-uint8_t dayOfWeekBase = 0;
+uint8_t dayOfWeekBase = 1;
 
+//These are global variables - but initialised values are meaningless?
 uint8_t year = 2017;
 uint8_t month = 03;
-uint8_t day = 19;
+uint8_t day = 0;
 uint8_t hour = 0;
 uint8_t min = 0;
 uint8_t sec = 0;
-uint8_t dayOfWeek = 0;
+//what day of week 0=sunday -> ++
+uint8_t dayOfWeek = 1;
 
 const uint8_t monthLengths[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
 
 uint8_t alarmDays = 0xFF; //1 if true. LSB is sunday, MSB-1 is saturday
-uint8_t hourAlarm = 06;
-uint8_t minAlarm = 30;
+uint8_t hourAlarm = 6;//6;
+uint8_t minAlarm = 20;//30;
 uint8_t secAlarm = 0;
 
 
@@ -58,8 +60,8 @@ uint8_t message[64];
 uint8_t messageIndex = 0;
 
 uint8_t rxIndex = 0;
-#define RECVBUFLEN 5
-uint16_t rxBuf[RECVBUFLEN];
+#define RECVBUFLEN 8
+uint8_t rxBuf[RECVBUFLEN];
 
 
 static void clock_setup(void)
@@ -294,15 +296,21 @@ int main(void)
 	rtc_set_counter_val(0x0000);
 
 	//set initial alarm
-	minAlarm = 50;
-	alarmDays = 0b01111111;
+	//minAlarm = 50;
+	//alarmDays = 0b01111111;
 	setAlarm(hourAlarm, minAlarm, secAlarm);
 
 	//Set start message
 	uint16_t msg[] = {'s', 't', 'a', 'r', 't', '\n'};
 	setSendData(msg, 6);
 	
+	//Turn the LED On
+	//	Turn off after the time is set
+	gpio_clear(GPIOC, GPIO13);
 	
+	//Turn lamp off
+	gpio_set(GPIOA, GPIO7);
+
 
 	while (1) {
 		__asm__("nop");
@@ -316,25 +324,38 @@ int main(void)
 
 
 
-void handleMessage(uint16_t msgBuf[]){
-	uint16_t data = msgBuf[0];
+void handleMessage(uint8_t msgBuf[]){
+	uint8_t data = msgBuf[0];
 	switch (data) {
 		case 's':
 			//setting the time
-			data = msgBuf[1];
-			yearBase = (uint8_t) data >> 8;
-			monthBase = (uint8_t) data;
 			
-			data = msgBuf[2];
-			dayBase = (uint8_t) data >> 8;
-			hourBase = (uint8_t) data;
+			yearBase = msgBuf[1];
+			monthBase = msgBuf[2];
 			
-			data = msgBuf[3];
-			minBase = (uint8_t) data >> 8;
-			secBase = (uint8_t) data;
+			dayBase = msgBuf[3];
+			hourBase = msgBuf[4];
 			
-			data = msgBuf[4];
-			dayOfWeekBase = (uint8_t) data >> 9;
+			minBase = msgBuf[5];
+			secBase = msgBuf[6];
+			secBase = 0; //not incrementing properly ????
+			
+			dayOfWeekBase = msgBuf[7];
+			
+	//		data = msgBuf[1];
+	//		yearBase = (uint8_t) data >> 8;
+	//		monthBase = (uint8_t) data;
+	//		
+	//		data = msgBuf[2];
+	//		dayBase = (uint8_t) data >> 8;
+	//		hourBase = (uint8_t) data;
+	//		
+	//		data = msgBuf[3];
+	//		minBase = (uint8_t) data >> 8;
+	//		secBase = (uint8_t) data;
+	//		
+	//		data = msgBuf[4];
+	//		dayOfWeekBase = (uint8_t) data >> 9;
 			
 			//Set the counter value to zero.
 			rtc_set_counter_val(0x0000);
@@ -344,17 +365,33 @@ void handleMessage(uint16_t msgBuf[]){
 			day = dayBase;
 			dayOfWeek = dayOfWeekBase;
 			
+			//set time
+			rtc_set_counter_val(hourBase*3600+minBase*60+secBase);
+			
+			
+			//set alarm
 			setAlarmIfDay();
+			
+			gpio_set(GPIOC, GPIO13); //turn LED off as time is set - this lets you tell if there is a power outage
 			break;
 		case 'a':
 			//setting alarm time
-			data = msgBuf[1];
-			hourAlarm = (uint8_t) data >> 8;
-			minAlarm = (uint8_t) data;
 			
-			data = msgBuf[2];
-			secAlarm = (uint8_t) data >> 8;
-			alarmDays = (uint8_t) data;
+			hourAlarm = msgBuf[1];
+			minAlarm = msgBuf[2];
+			
+			secAlarm = msgBuf[3];
+			alarmDays = msgBuf[4];
+			
+			
+			//data = msgBuf[1];
+			//hourAlarm = (uint8_t) data >> 8;
+			//minAlarm = (uint8_t) data;
+			
+			//data = msgBuf[2];
+			//secAlarm = (uint8_t) data >> 8;
+			//alarmDays = (uint8_t) data;
+			break;
 			
 		default:
 			//no correct message
@@ -385,13 +422,16 @@ void rtc_isr(void)
 		rtc_clear_flag(RTC_SEC);
 
 		/* Visual output. */
-		gpio_toggle(GPIOC, GPIO13);
+		//gpio_toggle(GPIOC, GPIO13);
 
 		c = rtc_get_counter_val();
+	//	c = c + 3600*hourBase;
+	//	c = c + 60*minBase;
+	//	c = c + secBase;
 
-		hour = c/3600 + hourBase;
-		min = (c % 3600)/60 + minBase;
-		sec = (c % 3600) % 60 + secBase;
+		hour = c/3600;// + hourBase;
+		min = (c % 3600)/60;// + minBase;
+		sec = (c % 3600) % 60;// + secBase;
 		
 		//usart_send_blocking(USART2, 't');
 		//usart_send_blocking(USART2, (uint16_t) hour >> 8);
@@ -403,15 +443,15 @@ void rtc_isr(void)
 		//usart_send_blocking(USART2, '\n');
 
 
-		/* Display the current counter value in binary via USART2. */
-		for (j = 0; j < 32; j++) {
-			if ((c & (0x80000000 >> j)) != 0) {
-		//		usart_send_blocking(USART2, '1');
-			} else {
-		//		usart_send_blocking(USART2, '0');
-			}
-		}
-		//usart_send_blocking(USART2, '\n');
+	//	/* Display the current counter value in binary via USART2. */
+	//	for (j = 0; j < 32; j++) {
+	//		if ((c & (0x80000000 >> j)) != 0) {
+	//	//		usart_send_blocking(USART2, '1');
+	//		} else {
+	//	//		usart_send_blocking(USART2, '0');
+	//		}
+	//	}
+	//	//usart_send_blocking(USART2, '\n');
 		
 		
 		
@@ -424,26 +464,40 @@ void rtc_isr(void)
 	}
 	
 	
+	//Do alarm manually
+	if ((hour == hourAlarm) && (min == minAlarm)) {
+		switch (alarmState){
+			case 0:
+				//alarm was off -> turn the light on
+				gpio_clear(GPIOA, GPIO7);
+				alarmState = 0x1;
+				//Set the alarm for 5 minutes
+				//		fix me? Is it 5 minutes
+				//uint32_t now = rtc_get_counter_val();
+				//rtc_set_alarm_time(now + 30*60);
+				
+				//hard-code it
+				hourAlarm = 7;
+				minAlarm = 30;
+				
+				break;
+			case 1:
+				gpio_set(GPIOA, GPIO7);
+				alarmState = 0x00;
+				//restore old alarm
+				hourAlarm = 6;
+				minAlarm = 20;
+				
+				break;
+		}
+}
 	
 	//check if it's the alarm
 	if (rtc_check_flag (RTC_ALR )){
 		//Clear the flag
 		rtc_clear_flag(RTC_ALR);
 		
-		switch (alarmState){
-			case 0:
-				//alarm was off -> turn the light on
-				gpio_set(GPIOA, GPIO7);
-				alarmState = 0x1;
-				//Set the alarm for 5 minutes
-				uint32_t now = rtc_get_counter_val();
-				rtc_set_alarm_time(now + 30*60);
-				break;
-			case 1:
-				gpio_clear(GPIOA, GPIO7);
-				alarmState = 0x00;
-				break;
-		}
+		//alarm state machine MEANT to be here
 		
 	}
 

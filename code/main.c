@@ -1,3 +1,24 @@
+//Known issues:
+// 14-05-2017 | Alarms over day boundarys will ONLY work if both days are alarmDays
+// 14-05-2017 | Must have an alarm every day
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #include <libopencm3/stm32/rcc.h>
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/stm32/rtc.h>
@@ -12,6 +33,24 @@
 #include "stdint.h"
 #include "stdbool.h"
 #include <string.h> //For memcpy
+
+struct Time {
+	uint8_t hour;
+	uint8_t min;
+	uint8_t sec;
+};
+
+struct Alarm {
+	uint8_t hour;
+	uint8_t min;
+	uint8_t sec;
+	uint8_t hourEnd;
+	uint8_t minEnd;
+	uint8_t secEnd;
+	bool triggered; 
+	bool enabled;
+	uint8_t alarmDays; //1 if true. LSB is sunday, MSB-1 is saturday
+};
 
 
 
@@ -42,13 +81,17 @@ uint8_t dayOfWeek = 1;
 const uint8_t monthLengths[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
 
-uint8_t alarmDays = 0xFF; //1 if true. LSB is sunday, MSB-1 is saturday
-uint8_t hourAlarm = 6;//6;
-uint8_t minAlarm = 20;//30;
-uint8_t secAlarm = 0;
 
 
-uint8_t alarmState;
+
+#define NUMALARMS 10
+struct Alarm alarmList[NUMALARMS];
+
+
+
+bool ledOn = false;
+
+uint8_t alarmState = 0;
 
 
 
@@ -218,16 +261,16 @@ static void setAlarm(uint8_t h, uint8_t m, uint8_t s){
 }
 
 
-static void setAlarmIfDay(void){
-	//If the alarm is on the day of week, set the alarm
-	
-	alarmState = 0x00; //disable the alarm - FIX ME FIX ME doesn't actually turn it off
-	
-	if ((alarmDays >> dayOfWeek) & (0x1 <<dayOfWeek)){
-		//Alarm is on this day
-		setAlarm(hourAlarm, minAlarm, secAlarm);
-	}
-}
+//static void setAlarmIfDay(void){
+//	//If the alarm is on the day of week, set the alarm
+//	
+//	alarmState = 0x00; //disable the alarm - FIX ME FIX ME doesn't actually turn it off
+//	
+//	if ((alarmDays >> dayOfWeek) & (0x1 <<dayOfWeek)){
+//		//Alarm is on this day
+//		setAlarm(hourAlarm, minAlarm, secAlarm);
+//	}
+//}
 
 
 
@@ -298,7 +341,7 @@ int main(void)
 	//set initial alarm
 	//minAlarm = 50;
 	//alarmDays = 0b01111111;
-	setAlarm(hourAlarm, minAlarm, secAlarm);
+	//setAlarm(hourAlarm, minAlarm, secAlarm);
 
 	//Set start message
 	uint16_t msg[] = {'s', 't', 'a', 'r', 't', '\n'};
@@ -310,7 +353,41 @@ int main(void)
 	
 	//Turn lamp off
 	gpio_set(GPIOA, GPIO7);
-
+	
+	//Alarm 0
+	alarmList[0].hour = 6;
+	alarmList[0].min = 30;
+	alarmList[0].sec = 0;
+	alarmList[0].alarmDays = 0xFF;
+	alarmList[0].hourEnd = 7;
+	alarmList[0].minEnd = 0;
+	alarmList[0].secEnd = 0;
+	alarmList[0].enabled = true;
+	alarmList[0].triggered = false;
+	//Alarm 1
+	alarmList[1].hour = 18;
+	alarmList[1].min = 30;
+	alarmList[1].sec = 0;
+	alarmList[1].alarmDays = 0xFF;
+	alarmList[1].hourEnd = 19;
+	alarmList[1].minEnd = 10;
+	alarmList[1].secEnd = 0;
+	alarmList[1].enabled = true;
+	alarmList[1].triggered = false;
+	//Alarm 2
+	alarmList[2].hour = 14;
+	alarmList[2].min = 50;
+	alarmList[2].sec = 0;
+	alarmList[2].alarmDays = 0xFF;
+	alarmList[2].hourEnd = 14;
+	alarmList[2].minEnd = 55;
+	alarmList[2].secEnd = 0;
+	alarmList[2].enabled = true;
+	alarmList[2].triggered = false;
+	for (int i=3;i<NUMALARMS;i++){
+		alarmList[i].enabled = false;
+	}
+	
 
 	while (1) {
 		__asm__("nop");
@@ -370,18 +447,18 @@ void handleMessage(uint8_t msgBuf[]){
 			
 			
 			//set alarm
-			setAlarmIfDay();
+			//setAlarmIfDay();
 			
 			gpio_set(GPIOC, GPIO13); //turn LED off as time is set - this lets you tell if there is a power outage
 			break;
 		case 'a':
 			//setting alarm time
 			
-			hourAlarm = msgBuf[1];
-			minAlarm = msgBuf[2];
+			//hourAlarm = msgBuf[1];
+			//minAlarm = msgBuf[2];
 			
-			secAlarm = msgBuf[3];
-			alarmDays = msgBuf[4];
+			//secAlarm = msgBuf[3];
+			//alarmDays = msgBuf[4];
 			
 			
 			//data = msgBuf[1];
@@ -416,7 +493,7 @@ void rtc_isr(void)
 	if (rtc_check_flag (RTC_SEC )){
 		
 		
-		volatile uint32_t j = 0, c = 0;
+		volatile uint32_t c = 0;
 
 		/* The interrupt flag isn't cleared by hardware, we have to do it. */
 		rtc_clear_flag(RTC_SEC);
@@ -459,46 +536,65 @@ void rtc_isr(void)
 			hour = 0;
 			rtc_set_counter_val(0x0000);
 			incrementDate();
-			setAlarmIfDay();
+			//setAlarmIfDay();
 		}
 	}
 	
 	
-	//Do alarm manually
-	if ((hour == hourAlarm) && (min == minAlarm)) {
-		switch (alarmState){
-			case 0:
-				//alarm was off -> turn the light on
-				gpio_clear(GPIOA, GPIO7);
-				alarmState = 0x1;
-				//Set the alarm for 5 minutes
-				//		fix me? Is it 5 minutes
-				//uint32_t now = rtc_get_counter_val();
-				//rtc_set_alarm_time(now + 30*60);
+	for (int i=0;i<NUMALARMS;i++){
+		if ((alarmList[i].alarmDays >> dayOfWeek) & (0x1 <<dayOfWeek)){
+			//Alarm is active this day of the wek
+			if (alarmList[i].enabled){
 				
-				//hard-code it
-				hourAlarm = 7;
-				minAlarm = 30;
+				uint8_t hourAlarm;
+				uint8_t minAlarm;
+				uint8_t secAlarm;
 				
-				break;
-			case 1:
-				gpio_set(GPIOA, GPIO7);
-				alarmState = 0x00;
-				//restore old alarm
-				hourAlarm = 6;
-				minAlarm = 20;
 				
-				break;
+				//What time are we comparing?
+				if (!alarmList[i].triggered){
+					//normal alarm time
+					hourAlarm = alarmList[i].hour;
+					minAlarm = alarmList[i].min;
+					secAlarm = alarmList[i].sec;
+				} else {
+					//alarm has been triggered => we want to switch it if it's time
+					hourAlarm = alarmList[i].hourEnd;
+					minAlarm = alarmList[i].minEnd;
+					secAlarm = alarmList[i].secEnd;
+				}
+				
+				//Check if the alarm is triggered
+				if (hour == hourAlarm){
+					if (min==minAlarm){
+						//Set alarm state
+						if (!alarmList[i].triggered) {
+							//Turn on
+							alarmList[i].triggered = true;
+							ledOn = true;
+						} else {
+							alarmList[i].triggered = false;
+							ledOn = false;
+						}
+					}
+				}
+			}
 		}
-}
+	}
+	if (ledOn){
+		//Turn light on
+		gpio_clear(GPIOA, GPIO7);
+	} else{
+		//Turn light off
+		gpio_set(GPIOA, GPIO7);
+	}
 	
-	//check if it's the alarm
+
+	
+	//check if it's the alarm interrupt
 	if (rtc_check_flag (RTC_ALR )){
 		//Clear the flag
-		rtc_clear_flag(RTC_ALR);
-		
-		//alarm state machine MEANT to be here
-		
+		rtc_clear_flag(RTC_ALR);		
 	}
 
 }

@@ -61,10 +61,10 @@ struct Alarm {
 uint8_t waveform[256];
 
 uint8_t yearBase = 2017;
-uint8_t monthBase = 03;
-uint8_t dayBase = 19;
-uint8_t hourBase = 6;
-uint8_t minBase = 20;
+uint8_t monthBase = 05;
+uint8_t dayBase = 18;
+uint8_t hourBase = 21;
+uint8_t minBase = 0;
 uint8_t secBase = 0;
 uint8_t dayOfWeekBase = 1;
 
@@ -89,7 +89,6 @@ struct Alarm alarmList[NUMALARMS];
 
 
 
-bool ledOn = false;
 
 uint8_t alarmState = 0;
 
@@ -336,7 +335,7 @@ int main(void)
 	/* Enable the RTC interrupt to occur off the SEC flag. */
 	rtc_interrupt_enable(RTC_SEC);
 	rtc_interrupt_enable(RTC_ALR);
-	rtc_set_counter_val(0x0000);
+	rtc_set_counter_val(hourBase*3600+minBase*60+secBase);
 
 	//set initial alarm
 	//minAlarm = 50;
@@ -542,7 +541,8 @@ void rtc_isr(void)
 	
 	
 	for (int i=0;i<NUMALARMS;i++){
-		if ((alarmList[i].alarmDays >> dayOfWeek) & (0x1 <<dayOfWeek)){
+		//if ((alarmList[i].alarmDays >> dayOfWeek) & (0x1 <<dayOfWeek)){ //should this be after the enabled check?
+		if (1==1) {
 			//Alarm is active this day of the wek
 			if (alarmList[i].enabled){
 				
@@ -569,26 +569,37 @@ void rtc_isr(void)
 					if (min==minAlarm){
 						//Set alarm state
 						if (!alarmList[i].triggered) {
-							//Turn on
 							alarmList[i].triggered = true;
-							ledOn = true;
 						} else {
 							alarmList[i].triggered = false;
-							ledOn = false;
 						}
 					}
 				}
 			}
 		}
 	}
-	if (ledOn){
-		//Turn light on
-		gpio_clear(GPIOA, GPIO7);
-	} else{
-		//Turn light off
-		gpio_set(GPIOA, GPIO7);
+	
+	
+	
+	bool on = false;
+	for (int i=0;i<NUMALARMS;i++){
+		if (alarmList[i].enabled){
+			if (alarmList[i].triggered) {
+				on = true;
+				break;
+			}
+		}
 	}
 	
+
+		
+	if (on){
+		//Turn light on
+		gpio_set(GPIOA, GPIO7);
+	} else{
+		//Turn light off
+		gpio_clear(GPIOA, GPIO7);
+	}
 
 	
 	//check if it's the alarm interrupt

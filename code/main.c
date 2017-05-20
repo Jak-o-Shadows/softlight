@@ -4,21 +4,6 @@
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #include <libopencm3/stm32/rcc.h>
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/stm32/rtc.h>
@@ -33,6 +18,11 @@
 #include "stdint.h"
 #include "stdbool.h"
 #include <string.h> //For memcpy
+
+
+
+#include "usbSerial.h"
+
 
 struct Time {
 	uint8_t hour;
@@ -104,6 +94,21 @@ uint8_t messageIndex = 0;
 uint8_t rxIndex = 0;
 #define RECVBUFLEN 8
 uint8_t rxBuf[RECVBUFLEN];
+
+static void clock_setup(void);
+static void usart_setup(void);
+static void gpio_setup(void);
+static void nvic_setup(void);
+
+static bool isLeapYear(uint8_t yearLoc);
+static void setAlarm(uint8_t h, uint8_t m, uint8_t s);
+void setSendData(uint16_t data[], uint16_t dataLength);
+void handleMessage(uint8_t msgBuf[]);
+
+
+
+
+
 
 
 static void clock_setup(void)
@@ -312,7 +317,11 @@ int main(void)
 		waveform[i] = x;
 	}
 	
+	//usb
+	usbSetup();
 	
+	
+	//other
 	clock_setup();
 	gpio_setup();
 	
@@ -383,13 +392,14 @@ int main(void)
 	alarmList[2].secEnd = 0;
 	alarmList[2].enabled = true;
 	alarmList[2].triggered = false;
-	for (int i=3;i<NUMALARMS;i++){
+	for (i=3;i<NUMALARMS;i++){
 		alarmList[i].enabled = false;
 	}
 	
 
 	while (1) {
-		__asm__("nop");
+		//__asm__("nop");
+		usbInLoop(); //poll because usb
 
 	}
 
@@ -548,7 +558,7 @@ void rtc_isr(void)
 				
 				uint8_t hourAlarm;
 				uint8_t minAlarm;
-				uint8_t secAlarm;
+				//uint8_t secAlarm;
 				
 				
 				//What time are we comparing?
@@ -556,12 +566,12 @@ void rtc_isr(void)
 					//normal alarm time
 					hourAlarm = alarmList[i].hour;
 					minAlarm = alarmList[i].min;
-					secAlarm = alarmList[i].sec;
+					//secAlarm = alarmList[i].sec;
 				} else {
 					//alarm has been triggered => we want to switch it if it's time
 					hourAlarm = alarmList[i].hourEnd;
 					minAlarm = alarmList[i].minEnd;
-					secAlarm = alarmList[i].secEnd;
+					//secAlarm = alarmList[i].secEnd;
 				}
 				
 				//Check if the alarm is triggered

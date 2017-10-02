@@ -95,6 +95,34 @@ uint8_t rxIndex = 0;
 #define RECVBUFLEN 8
 uint8_t rxBuf[RECVBUFLEN];
 
+
+//state machine variables
+#define STARTCHAR 0xFF
+#define ENDCHAR 0xEF
+#define DATALENGTH 40
+uint8_t dataID = 0;
+uint8_t dataLength = 0;
+uint32_t dataCRC = 0;
+uint8_t parseIndex = 0;
+uint8_t data[DATALENGTH];
+
+//state machine states
+static void wait_for_start(void);
+static void parse_id(void);
+static void parse_length(void);
+static void parse_data(void);
+static void parse_crc(void);
+static void parse_end(void);
+//other func
+bool checkCRC(uint32_t CRC);
+
+//FSM for recieving data
+void parse_data_fsm(void);
+void (*parse_next)(void) = wait_for_start;
+
+
+
+
 static void clock_setup(void);
 static void usart_setup(void);
 static void gpio_setup(void);
@@ -103,12 +131,13 @@ static void nvic_setup(void);
 static bool isLeapYear(uint8_t yearLoc);
 static void setAlarm(uint8_t h, uint8_t m, uint8_t s);
 void setSendData(uint16_t data[], uint16_t dataLength);
-void handleMessage(uint8_t msgBuf[]);
+void handleMessage(uint8_t id, uint8_t msgBuf[]);
 
 
 
-
-
+////////////////////////////////////////////////////////
+///////////////////uC setup/////////////////////////////
+////////////////////////////////////////////////////////
 
 
 static void clock_setup(void)
@@ -181,9 +210,9 @@ static void nvic_setup(void)
 
 
 
-
-
-
+///////////////////////////////////////////////////////
+///////////////// Time Stuff //////////////////////////
+///////////////////////////////////////////////////////
 
 static bool isLeapYear(uint8_t yearLoc){
 	if (yearLoc % 400 != 0){
@@ -278,23 +307,11 @@ static void setAlarm(uint8_t h, uint8_t m, uint8_t s){
 
 
 
-void setSendData(uint16_t data[], uint16_t dataLength){
-	// dataLength < SENDBUFLENGTH
-	
-	
-	while (messageIndex>0) {}; //stall while waiting for TX to finish sending
-	//	the higher priority interrupt usart interrupt should mean this isn't
-	//	too long.	
-	messageLen = dataLength;
-	memcpy(message, data, dataLength);
-	/* Enable transmit interrupt so it sends back the data. */
-	USART_CR1(USART2) |= USART_CR1_TXEIE;	
-	
-	
-}
 
 
-
+////////////////////////////////////////////////////////
+//////////////main//////////////////////////////////////
+////////////////////////////////////////////////////////
 
 
 
@@ -318,7 +335,7 @@ int main(void)
 	}
 	
 	//usb
-	usbSetup();
+	//usbSetup();
 	
 	
 	//other
@@ -364,9 +381,9 @@ int main(void)
 	
 	//Alarm 0
 	alarmList[0].hour = 6;
-	alarmList[0].min = 30;
+	alarmList[0].min = 20;
 	alarmList[0].sec = 0;
-	alarmList[0].alarmDays = 0xFF;
+	alarmList[0].alarmDays = 0b0111110;
 	alarmList[0].hourEnd = 7;
 	alarmList[0].minEnd = 0;
 	alarmList[0].secEnd = 0;
@@ -398,8 +415,8 @@ int main(void)
 	
 
 	while (1) {
-		//__asm__("nop");
-		usbInLoop(); //poll because usb
+		__asm__("nop");
+		//usbInLoop(); //poll because usb
 
 	}
 
@@ -410,23 +427,22 @@ int main(void)
 
 
 
-void handleMessage(uint8_t msgBuf[]){
-	uint8_t data = msgBuf[0];
-	switch (data) {
+void handleMessage(uint8_t id, uint8_t msgBuf[]){
+	switch (id) {
 		case 's':
 			//setting the time
 			
-			yearBase = msgBuf[1];
-			monthBase = msgBuf[2];
+			yearBase = msgBuf[0];
+			monthBase = msgBuf[1];
 			
-			dayBase = msgBuf[3];
-			hourBase = msgBuf[4];
+			dayBase = msgBuf[2];
+			hourBase = msgBuf[3];
 			
-			minBase = msgBuf[5];
-			secBase = msgBuf[6];
+			minBase = msgBuf[4];
+			secBase = msgBuf[5];
 			secBase = 0; //not incrementing properly ????
 			
-			dayOfWeekBase = msgBuf[7];
+			dayOfWeekBase = msgBuf[6];
 			
 	//		data = msgBuf[1];
 	//		yearBase = (uint8_t) data >> 8;
@@ -463,20 +479,19 @@ void handleMessage(uint8_t msgBuf[]){
 		case 'a':
 			//setting alarm time
 			
-			//hourAlarm = msgBuf[1];
-			//minAlarm = msgBuf[2];
+			alarmList[msgBuf[0]].hour = msgBuf[1];
+			alarmList[msgBuf[0]].min = msgBuf[2];
+			alarmList[msgBuf[0]].sec = msgBuf[3];
+			alarmList[msgBuf[0]].alarmDays = msgBuf[4];
 			
-			//secAlarm = msgBuf[3];
-			//alarmDays = msgBuf[4];
+			alarmList[msgBuf[0]].hourEnd = msgBuf[5];
+			alarmList[msgBuf[0]].minEnd = msgBuf[6];
+			alarmList[msgBuf[0]].secEnd = msgBuf[7];
+			
+			alarmList[msgBuf[0]].enabled = true;
+			alarmList[msgBuf[0]].triggered = false; //can't be bothered
 			
 			
-			//data = msgBuf[1];
-			//hourAlarm = (uint8_t) data >> 8;
-			//minAlarm = (uint8_t) data;
-			
-			//data = msgBuf[2];
-			//secAlarm = (uint8_t) data >> 8;
-			//alarmDays = (uint8_t) data;
 			break;
 			
 		default:
@@ -622,6 +637,151 @@ void rtc_isr(void)
 
 
 
+////////////////////////////////////////////////////////
+////////// Comm stuff //////////////////////////////////
+////////////////////////////////////////////////////////
+
+void wait_for_start(void){
+	//check if there is data available
+	if (rxIndex <= parseIndex){
+		return;
+	}
+	
+	if (rxBuf[parseIndex] == STARTCHAR){
+		parse_next = parse_id;
+		dataID = 0;
+		dataLength = 0;
+		dataCRC = 0;
+	}
+	parseIndex++;
+}
+
+
+void parse_data_fsm(void){
+	if (parse_next != NULL){
+		parse_next();
+	}
+}
+
+void parse_id(void){
+	//check if there is data available
+	if (rxIndex <= parseIndex){
+		return;
+	}
+	
+	dataID = rxBuf[parseIndex];
+	parseIndex++;
+	parse_next = parse_length;
+	
+}
+
+void parse_length(void){
+	//check if there is data available
+	if (rxIndex <= parseIndex){
+		return;
+	}
+	
+	dataLength = rxBuf[parseIndex];
+	parseIndex++;
+	parse_next = parse_data;
+	
+}
+
+void parse_data(void){
+	static uint8_t count = 0; //how much of the data recieved
+	
+	//check if there is data available
+	if (rxIndex <= parseIndex){
+		return;
+	}
+	
+	data[count] = rxBuf[parseIndex];
+	count++;
+	parseIndex++;
+	
+	if (count > DATALENGTH){
+		count=0;
+		parse_next=wait_for_start;
+	}
+	
+	//transition if recv'ed all
+	if (count == dataLength){
+		count = 0;
+		parse_next = parse_crc;
+		return;
+	}
+}
+
+void parse_crc(void){
+	static uint8_t count=0;
+	
+	//check if there is data available
+	if (rxIndex <= parseIndex){
+		return;
+	}
+	
+	dataCRC += rxBuf[parseIndex];
+	count++;
+	parseIndex++;
+	
+	if (count==2){
+		count = 0;
+		
+		//do crc check
+		if (!checkCRC(dataCRC)){
+			parse_next = wait_for_start;
+			return;
+		}
+		parse_next = parse_end;
+	}
+	
+	//bit-shift to move data
+	dataCRC <<= 8;
+}
+
+void parse_end(void){
+	//check if there is data available
+	if (rxIndex <= parseIndex){
+		return;
+	}
+	
+	if (rxBuf[parseIndex] != ENDCHAR){
+		parse_next = wait_for_start;
+	}
+	parseIndex++;
+	
+	//handle data
+	handleMessage(dataID, data);
+	
+	parse_next = wait_for_start;
+}
+
+
+//other comm functions
+
+bool checkCRC(uint32_t CRC){
+	return true;
+}
+
+
+//Send
+void setSendData(uint16_t data[], uint16_t dataLength){
+	// dataLength < SENDBUFLENGTH
+	
+	
+	while (messageIndex>0) {}; //stall while waiting for TX to finish sending
+	//	the higher priority interrupt usart interrupt should mean this isn't
+	//	too long.	
+	messageLen = dataLength;
+	memcpy(message, data, dataLength);
+	/* Enable transmit interrupt so it sends back the data. */
+	USART_CR1(USART2) |= USART_CR1_TXEIE;	
+	
+	
+}
+
+
+//interrupt
 void usart2_isr(void)
 {
 
@@ -635,9 +795,10 @@ void usart2_isr(void)
 		/* Retrieve the data from the peripheral. */
 		rxBuf[rxIndex] = usart_recv(USART2);
 		rxIndex++;
+		parse_data_fsm();
 		if (rxIndex>=RECVBUFLEN){
-			handleMessage(rxBuf);
 			rxIndex = 0;
+			parseIndex = 0;
 		}
 	}
 

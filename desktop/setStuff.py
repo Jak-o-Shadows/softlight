@@ -10,8 +10,9 @@ import datetime
 
 
 hr = 6
-minute = 30
-alarmTime = datetime.time(hour=hr, minute=minute, second=0)
+minute = 20
+alarmTime = datetime.datetime(year=2017, month=2, day=10, hour=hr, minute=minute, second=0)
+alarmEnd = alarmTime + datetime.timedelta(minutes=30)
 
 alarmDayOfWeek = [0, 1, 1, 1, 1, 1, 0] #Sunday -> Saturday
 
@@ -28,7 +29,7 @@ def send(con, uint8_t):
 
 
 
-port = "COM7"
+port = "COM8"
 baud = "9600"
 
 con = serial.Serial(port=port, baudrate=baud)
@@ -36,9 +37,11 @@ con = serial.Serial(port=port, baudrate=baud)
 #first, set the time
 
 now = datetime.datetime.now()
-
-
-#now = datetime.datetime(2017, 5, 8, 6, 29, 00)
+#offset = datetime.timedelta(minutes=10)
+#now = datetime.datetime(2017, 5, 6, 6, 29, 0) - offset
+#print now
+#now = now + offset
+print now
 
 
 
@@ -69,7 +72,11 @@ print "day of week",  bin(dayOfWeek), dayOfWeekString
 #   hour
 #   second
 #   dayOfWeek
+start = "FF"
+send(con, start)
 con.write("s")
+length = "07"
+send(con, length)
 send(con, yearString)
 send(con, monthString)
 send(con, dayString)
@@ -77,12 +84,17 @@ send(con, hourString)
 send(con, minuteString)
 send(con, secondString)
 send(con, dayOfWeekString)
-
+crc = ["0", "0"]
+end ="EF"
+send(con, crc[0])
+send(con, crc[1])
+send(con, end)
+print "sent"
 
 #sending the second bit of data isn't currently working
 #       The alarm default is 6:30, monday to friday -> bugger it
-import sys
-sys.exit()
+#import sys
+#sys.exit()
 
 time.sleep(1)
 
@@ -95,7 +107,9 @@ minuteString = hex(alarmTime.minute)[2:].zfill(2)
 secondString = hex(alarmTime.second)[2:].zfill(2)
 alarmDay = sum([alarmDayOfWeek[i] << i for i in xrange(7)])
 alarmDayString = hex(alarmDay)[2:].zfill(2)
-
+hourEndString = hex(alarmEnd.hour)[2:].zfill(2)
+minuteEndString = hex(alarmEnd.minute)[2:].zfill(2)
+secondEndString = hex(alarmEnd.second)[2:].zfill(2)
 
 print "hour: ", now.hour, hourString
 print "minute: ", now.minute, minuteString
@@ -108,15 +122,24 @@ print "alarmDay: ", bin(alarmDay), alarmDayString
 #   hour
 #   second
 #   alarm days
+send(con, start)
 con.write("a")
+length = "07"
+send(con, length)
+send(con, "2")
 send(con, hourString)
 send(con, minuteString)
 send(con, secondString)
 send(con, alarmDayString)
-#send some rubbish - as must send 7 btes at the moment
-send(con, "00")
-send(con, "00")
-send(con, "00")
+send(con, hourEndString)
+send(con, minuteEndString)
+send(con, secondEndString)
+crc = ["0", "0"]
+end ="EF"
+send(con, crc[0])
+send(con, crc[1])
+send(con, end)
+
 
 
 

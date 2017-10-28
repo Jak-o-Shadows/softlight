@@ -81,7 +81,7 @@ struct Alarm alarmList[NUMALARMS];
 
 
 uint8_t alarmState = 0;
-
+bool override = false;
 
 
 
@@ -191,8 +191,8 @@ static void gpio_setup(void)
 
 	//Enable another pin, for turning the light on in the mean time
 	gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_2_MHZ,
-		      GPIO_CNF_OUTPUT_PUSHPULL, GPIO7); 
-	gpio_clear(GPIOA, GPIO7);
+		      GPIO_CNF_OUTPUT_PUSHPULL, GPIO1); 
+	gpio_clear(GPIOA, GPIO1);
 
 }
 
@@ -348,7 +348,21 @@ int main(void)
 	usart_setup();
 	//timer_setup();
 	//dacDMASetup();
-
+	
+	//while (1) {
+		for (int start = 0;start<10;start++){
+			for (int ticker=1;ticker<1000000;ticker++){
+				__asm__("nop");
+			}
+			gpio_toggle(GPIOA, GPIO1);
+		}
+		for (int start=0;start<40;start++){
+			for (int ticker=1;ticker<100000;ticker++){
+				__asm__("nop");
+			}
+			gpio_toggle(GPIOA, GPIO1);
+		}
+	//}
 	/*
 	 * If the RTC is pre-configured just allow access, don't reconfigure.
 	 * Otherwise enable it with the LSE as clock source and 0x7fff as
@@ -377,7 +391,7 @@ int main(void)
 	gpio_clear(GPIOC, GPIO13);
 	
 	//Turn lamp off
-	gpio_set(GPIOA, GPIO7);
+	gpio_set(GPIOA, GPIO1);
 	
 	//Alarm 0
 	alarmList[0].hour = 6;
@@ -492,6 +506,10 @@ void handleMessage(uint8_t id, uint8_t msgBuf[]){
 			alarmList[msgBuf[0]].triggered = false; //can't be bothered
 			
 			
+			break;
+		case 'o':
+			//enable/disable override
+			override = (bool) msgBuf[0];
 			break;
 			
 		default:
@@ -618,14 +636,17 @@ void rtc_isr(void)
 	
 
 		
-	if (on){
-		//Turn light on
-		gpio_set(GPIOA, GPIO7);
-	} else{
-		//Turn light off
-		gpio_clear(GPIOA, GPIO7);
+	if (!override) {
+		if (on){
+			//Turn light on
+			gpio_set(GPIOA, GPIO1);
+		} else{
+			//Turn light off
+			gpio_clear(GPIOA, GPIO1);
+		}
+	} else {
+		gpio_toggle(GPIOA, GPIO1);
 	}
-
 	
 	//check if it's the alarm interrupt
 	if (rtc_check_flag (RTC_ALR )){

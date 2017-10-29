@@ -10,7 +10,7 @@
 #include <libopencm3/stm32/usart.h>
 #include <libopencm3/stm32/pwr.h>
 #include <libopencm3/cm3/nvic.h>
-//#include <libopencm3/stm32/timer.h>
+#include <libopencm3/stm32/timer.h>
 //#include <libopencm3/stm32/dac.h>
 //#include <libopencm3/stm32/dma.h>
 
@@ -78,12 +78,10 @@ const uint8_t monthLengths[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 struct Alarm alarmList[NUMALARMS];
 
 
-
-
 uint8_t alarmState = 0;
 bool override = false;
-
-
+bool buttonStatus = false;
+uint8_t overrideMode = 0;
 
 uint8_t nextSend = 'a';
 uint8_t messageLen = 0;
@@ -127,6 +125,8 @@ static void clock_setup(void);
 static void usart_setup(void);
 static void gpio_setup(void);
 static void nvic_setup(void);
+static void timer_setup(void);
+void setPWMVal(uint32_t val);
 
 static bool isLeapYear(uint8_t yearLoc);
 static void setAlarm(uint8_t h, uint8_t m, uint8_t s);
@@ -151,6 +151,13 @@ static void clock_setup(void)
 	rcc_periph_clock_enable(RCC_GPIOA);
 	rcc_periph_clock_enable(RCC_USART2);
 	rcc_periph_clock_enable(RCC_AFIO);
+	
+	//for input button
+	rcc_periph_clock_enable(RCC_GPIOB);
+	
+	//timer 2, CH2  PA1
+	rcc_periph_clock_enable(RCC_TIM2);
+	
 	
 
 	rcc_periph_clock_enable(RCC_DMA2);
@@ -188,11 +195,18 @@ static void gpio_setup(void)
 	//DAC - PA5
   	gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_50_MHZ, GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, GPIO5);//GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, GPIO5);
 
+	//button input
+	gpio_set_mode(GPIOB, GPIO_MODE_INPUT, GPIO_CNF_INPUT_PULL_UPDOWN, GPIO0);
+	gpio_set(GPIOB, GPIO0); //pull-up resistor
+	
 
 	//Enable another pin, for turning the light on in the mean time
+	//gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_2_MHZ,
+	//	      GPIO_CNF_OUTPUT_PUSHPULL, GPIO1); 
+	//gpio_clear(GPIOA, GPIO1);
 	gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_2_MHZ,
-		      GPIO_CNF_OUTPUT_PUSHPULL, GPIO1); 
-	gpio_clear(GPIOA, GPIO1);
+					GPIO_CNF_OUTPUT_ALTFN_PUSHPULL,
+					GPIO1);
 
 }
 
@@ -207,6 +221,35 @@ static void nvic_setup(void)
 	nvic_set_priority(NVIC_USART2_IRQ, 2);
 }
 
+
+static void timer_setup(void){
+	
+	//TIM2, CH2 - PA1
+	timer_reset(TIM2);
+	
+	timer_set_mode(TIM2,
+					TIM_CR1_CKD_CK_INT,
+					TIM_CR1_CMS_EDGE,
+					TIM_CR1_DIR_UP);
+	
+	timer_set_prescaler(TIM2, 2);
+	timer_set_repetition_counter(TIM2, 0);
+	timer_enable_preload(TIM2);
+	timer_continuous_mode(TIM2);
+	timer_set_period(TIM2, 20000);
+	
+	timer_disable_oc_output(TIM2, TIM_OC2);
+	timer_set_oc_mode(TIM2, TIM_OC2, TIM_OCM_PWM1);
+	timer_set_oc_value(TIM2, TIM_OC2, 2);
+	timer_enable_oc_output(TIM2, TIM_OC2);
+	
+	timer_enable_counter(TIM2);
+}
+
+
+void setPWMVal(uint32_t val){
+	timer_set_oc_value(TIM2, TIM_OC2, val);
+}
 
 
 
@@ -341,6 +384,7 @@ int main(void)
 	//other
 	clock_setup();
 	gpio_setup();
+	timer_setup();
 	
 	/* Setup the RTC interrupt. */
 	nvic_setup();
@@ -349,33 +393,51 @@ int main(void)
 	//timer_setup();
 	//dacDMASetup();
 	
+	//check button status - as a toggle button, but we don't care about what it acutally is
+	uint16_t readButton = gpio_port_read(GPIOB);
+	buttonStatus = (bool) readButton & (GPIO0<<1);
+	
+	//while(1){};
+	
+	
 	//while (1) {
 		for (int start = 0;start<10;start++){
-			for (int ticker=1;ticker<1000000;ticker++){
+			setPWMVal(20000+1);
+			for (int ticker=1;ticker<1000000/2;ticker++){
 				__asm__("nop");
 			}
-			gpio_toggle(GPIOA, GPIO1);
+			for (int ticker=1;ticker<1000000/2;ticker++){
+				__asm__("nop");
+			}
+			//gpio_toggle(GPIOA, GPIO1);
+			gpio_toggle(GPIOC, GPIO13);
+			
 		}
 		for (int start=0;start<40;start++){
-			for (int ticker=1;ticker<100000;ticker++){
+			setPWMVal(10000);
+			for (int ticker=1;ticker<100000/2;ticker++){
 				__asm__("nop");
 			}
-			gpio_toggle(GPIOA, GPIO1);
+			//setPWMVal(0);
+			for (int ticker=1;ticker<100000/2;ticker++){
+				__asm__("nop");
+			}
+			//gpio_toggle(GPIOA, GPIO1);
+			gpio_toggle(GPIOC, GPIO13);
 		}
+	setPWMVal(0);
 	//}
 	/*
 	 * If the RTC is pre-configured just allow access, don't reconfigure.
 	 * Otherwise enable it with the LSE as clock source and 0x7fff as
 	 * prescale value.
 	 */
-	rtc_auto_awake(RCC_LSE, 0x7fff);
-
-
-
-	/* Enable the RTC interrupt to occur off the SEC flag. */
-	rtc_interrupt_enable(RTC_SEC);
-	rtc_interrupt_enable(RTC_ALR);
-	rtc_set_counter_val(hourBase*3600+minBase*60+secBase);
+//	rtc_auto_awake(RCC_LSE, 0x7fff);
+//
+//	/* Enable the RTC interrupt to occur off the SEC flag. */
+//	rtc_interrupt_enable(RTC_SEC);
+//	rtc_interrupt_enable(RTC_ALR);
+//	rtc_set_counter_val(hourBase*3600+minBase*60+secBase);
 
 	//set initial alarm
 	//minAlarm = 50;
@@ -391,7 +453,7 @@ int main(void)
 	gpio_clear(GPIOC, GPIO13);
 	
 	//Turn lamp off
-	gpio_set(GPIOA, GPIO1);
+	//gpio_set(GPIOA, GPIO1);
 	
 	//Alarm 0
 	alarmList[0].hour = 6;
@@ -427,10 +489,37 @@ int main(void)
 		alarmList[i].enabled = false;
 	}
 	
-
+	bool newButton;
 	while (1) {
 		__asm__("nop");
 		//usbInLoop(); //poll because usb
+		readButton = gpio_port_read(GPIOB);
+		newButton = (bool) (readButton & GPIO0);
+		if (buttonStatus!=newButton){
+			buttonStatus = newButton;
+			switch (overrideMode){
+				case 0:
+					setPWMVal(0);
+					overrideMode++;
+					break;
+				case 1:
+					setPWMVal(100);
+					overrideMode++;
+					break;
+				case 2:
+					setPWMVal(500);
+					overrideMode++;
+					break;
+				case 3:
+					setPWMVal(20001);
+					overrideMode=0;
+					break;
+			}
+			for (int i=0;i<2000000;i++){ //delay to prevent bouncing
+				__asm__("nop");
+			}
+		}
+		
 
 	}
 

@@ -169,8 +169,8 @@ static void usart_setup(void)
 	rcc_periph_clock_enable(RCC_GPIOA);
 	rcc_periph_clock_enable(RCC_USART2);
 
-	gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_50_MHZ, GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, GPIO_USART2_TX); //USART 2 TX is A2
-	gpio_set_mode(GPIOA, GPIO_MODE_INPUT, GPIO_CNF_INPUT_FLOAT, GPIO_USART2_RX); //USART 2 RX is A3
+	gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_50_MHZ, GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, GPIO2); //USART 2 TX is A2
+	gpio_set_mode(GPIOA, GPIO_MODE_INPUT, GPIO_CNF_INPUT_FLOAT, GPIO3); //USART 2 RX is A3
 
 	usart_set_baudrate(USART2, 9600);
 	usart_set_databits(USART2, 8);
@@ -180,9 +180,9 @@ static void usart_setup(void)
 	usart_set_flow_control(USART2, USART_FLOWCONTROL_NONE);
 	//enable interrupt rx
 	USART_CR1(USART2) |= USART_CR1_RXNEIE;
-	//enable tx interrupt, as we have something to say at the start
-	USART_CR1(USART2) |= USART_CR1_TXEIE;
 
+	
+	
 	
 	usart_enable(USART2);
 }
@@ -385,20 +385,17 @@ int main(void)
 	clock_setup();
 	gpio_setup();
 	timer_setup();
-	
+	usart_setup();
+
 	/* Setup the RTC interrupt. */
 	nvic_setup();
 	
-	usart_setup();
 	//timer_setup();
 	//dacDMASetup();
 	
 	//check button status - as a toggle button, but we don't care about what it acutally is
 	uint16_t readButton = gpio_port_read(GPIOB);
 	buttonStatus = (bool) readButton & (GPIO0<<1);
-	
-	//while(1){};
-	
 	
 	//while (1) {
 		for (int start = 0;start<10;start++){
@@ -432,12 +429,13 @@ int main(void)
 	 * Otherwise enable it with the LSE as clock source and 0x7fff as
 	 * prescale value.
 	 */
-//	rtc_auto_awake(RCC_LSE, 0x7fff);
-//
-//	/* Enable the RTC interrupt to occur off the SEC flag. */
-//	rtc_interrupt_enable(RTC_SEC);
-//	rtc_interrupt_enable(RTC_ALR);
-//	rtc_set_counter_val(hourBase*3600+minBase*60+secBase);
+	//rtc_auto_awake(RCC_LSE, 0x7fff);
+	rtc_auto_awake(RCC_HSE, 0xF3CD); //FFFE -> 1.05
+
+	/* Enable the RTC interrupt to occur off the SEC flag. */
+	rtc_interrupt_enable(RTC_SEC);
+	rtc_interrupt_enable(RTC_ALR);
+	rtc_set_counter_val(hourBase*3600+minBase*60+secBase);
 
 	//set initial alarm
 	//minAlarm = 50;
@@ -501,18 +499,22 @@ int main(void)
 				case 0:
 					setPWMVal(0);
 					overrideMode++;
+					override = 1;
 					break;
 				case 1:
 					setPWMVal(100);
 					overrideMode++;
+					override = 1;
 					break;
 				case 2:
 					setPWMVal(500);
 					overrideMode++;
+					override = 1;
 					break;
 				case 3:
 					setPWMVal(20001);
 					overrideMode=0;
+					override = 0;
 					break;
 			}
 			for (int i=0;i<2000000;i++){ //delay to prevent bouncing
@@ -630,7 +632,7 @@ void rtc_isr(void)
 		rtc_clear_flag(RTC_SEC);
 
 		/* Visual output. */
-		//gpio_toggle(GPIOC, GPIO13);
+		gpio_toggle(GPIOC, GPIO13);
 
 		c = rtc_get_counter_val();
 	//	c = c + 3600*hourBase;
@@ -728,13 +730,13 @@ void rtc_isr(void)
 	if (!override) {
 		if (on){
 			//Turn light on
-			gpio_set(GPIOA, GPIO1);
+			setPWMVal(20001);
 		} else{
 			//Turn light off
-			gpio_clear(GPIOA, GPIO1);
+			setPWMVal(0);
 		}
 	} else {
-		gpio_toggle(GPIOA, GPIO1);
+		//gpio_toggle(GPIOA, GPIO1);
 	}
 	
 	//check if it's the alarm interrupt

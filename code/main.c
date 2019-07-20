@@ -50,20 +50,20 @@ struct Alarm {
 /* Globals */
 uint8_t waveform[256];
 
-uint8_t yearBase = 2017;
-uint8_t monthBase = 05;
-uint8_t dayBase = 18;
-uint8_t hourBase = 21;
-uint8_t minBase = 0;
+uint8_t yearBase = 2018;
+uint8_t monthBase = 04;
+uint8_t dayBase = 22;
+uint8_t hourBase = 19;
+uint8_t minBase = 30;
 uint8_t secBase = 0;
 uint8_t dayOfWeekBase = 1;
 
 //These are global variables - but initialised values are meaningless?
-uint8_t year = 2017;
-uint8_t month = 03;
-uint8_t day = 0;
-uint8_t hour = 0;
-uint8_t min = 0;
+uint8_t year = 2018;
+uint8_t month = 04;
+uint8_t day = 22;
+uint8_t hour = 19;
+uint8_t min = 30;
 uint8_t sec = 0;
 //what day of week 0=sunday -> ++
 uint8_t dayOfWeek = 1;
@@ -130,7 +130,7 @@ void setPWMVal(uint32_t val);
 
 static bool isLeapYear(uint8_t yearLoc);
 static void setAlarm(uint8_t h, uint8_t m, uint8_t s);
-void setSendData(uint16_t data[], uint16_t dataLength);
+void setSendData(uint16_t msgData[], uint16_t msgDataLength);
 void handleMessage(uint8_t id, uint8_t msgBuf[]);
 
 
@@ -144,22 +144,18 @@ static void clock_setup(void)
 {
 	rcc_clock_setup_in_hse_8mhz_out_72mhz();
 
-	/* Enable GPIOC clock. */
-	rcc_periph_clock_enable(RCC_GPIOC);
-
-	/* Enable clocks for GPIO port A (for GPIO_USART2_TX) and USART2. */
+	// GPIO
 	rcc_periph_clock_enable(RCC_GPIOA);
+	rcc_periph_clock_enable(RCC_GPIOB);
+	rcc_periph_clock_enable(RCC_GPIOC);
+	
+	/* Enable clocks for GPIO port A (for GPIO_USART2_TX) and USART2. */
 	rcc_periph_clock_enable(RCC_USART2);
 	rcc_periph_clock_enable(RCC_AFIO);
 	
-	//for input button
-	rcc_periph_clock_enable(RCC_GPIOB);
+	//timer 4, CH3, PB8
+	rcc_periph_clock_enable(RCC_TIM4);
 	
-	//timer 2, CH2  PA1
-	rcc_periph_clock_enable(RCC_TIM2);
-	
-	
-
 	rcc_periph_clock_enable(RCC_DMA2);
 
 }
@@ -192,21 +188,27 @@ static void gpio_setup(void)
 	/* Set GPIO13 (in GPIO port C) to 'output push-pull'. */
 	gpio_set_mode(GPIOC, GPIO_MODE_OUTPUT_2_MHZ,
 		      GPIO_CNF_OUTPUT_PUSHPULL, GPIO13); //PC13 is the LED
-	//DAC - PA5
+	//DAC - PB8
   	gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_50_MHZ, GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, GPIO5);//GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, GPIO5);
 
 	//button input
-	gpio_set_mode(GPIOB, GPIO_MODE_INPUT, GPIO_CNF_INPUT_PULL_UPDOWN, GPIO0);
-	gpio_set(GPIOB, GPIO0); //pull-up resistor
+	//	B1
+	gpio_set_mode(GPIOB, GPIO_MODE_INPUT, GPIO_CNF_INPUT_PULL_UPDOWN, GPIO1);
+	gpio_set(GPIOB, GPIO1); //pull-up resistor
+	
+	//button other side
+	//	A10
+	gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_2_MHZ, GPIO_CNF_OUTPUT_PUSHPULL, GPIO10);
+	gpio_clear(GPIOA, GPIO10);
 	
 
 	//Enable another pin, for turning the light on in the mean time
 	//gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_2_MHZ,
 	//	      GPIO_CNF_OUTPUT_PUSHPULL, GPIO1); 
 	//gpio_clear(GPIOA, GPIO1);
-	gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_2_MHZ,
+	gpio_set_mode(GPIOB, GPIO_MODE_OUTPUT_2_MHZ,
 					GPIO_CNF_OUTPUT_ALTFN_PUSHPULL,
-					GPIO1);
+					GPIO8);
 
 }
 
@@ -224,31 +226,31 @@ static void nvic_setup(void)
 
 static void timer_setup(void){
 	
-	//TIM2, CH2 - PA1
-	timer_reset(TIM2);
+	//TIM4, CH3 - PB8
+	timer_reset(TIM4);
 	
-	timer_set_mode(TIM2,
+	timer_set_mode(TIM4,
 					TIM_CR1_CKD_CK_INT,
 					TIM_CR1_CMS_EDGE,
 					TIM_CR1_DIR_UP);
 	
-	timer_set_prescaler(TIM2, 2);
-	timer_set_repetition_counter(TIM2, 0);
-	timer_enable_preload(TIM2);
-	timer_continuous_mode(TIM2);
-	timer_set_period(TIM2, 20000);
+	timer_set_prescaler(TIM4, 2);
+	timer_set_repetition_counter(TIM4, 0);
+	timer_enable_preload(TIM4);
+	timer_continuous_mode(TIM4);
+	timer_set_period(TIM4, 20000);
 	
-	timer_disable_oc_output(TIM2, TIM_OC2);
-	timer_set_oc_mode(TIM2, TIM_OC2, TIM_OCM_PWM1);
-	timer_set_oc_value(TIM2, TIM_OC2, 2);
-	timer_enable_oc_output(TIM2, TIM_OC2);
+	timer_disable_oc_output(TIM4, TIM_OC3);
+	timer_set_oc_mode(TIM4, TIM_OC3, TIM_OCM_PWM1);
+	timer_set_oc_value(TIM4, TIM_OC3, 2);
+	timer_enable_oc_output(TIM4, TIM_OC3);
 	
-	timer_enable_counter(TIM2);
+	timer_enable_counter(TIM4);
 }
 
 
 void setPWMVal(uint32_t val){
-	timer_set_oc_value(TIM2, TIM_OC2, val);
+	timer_set_oc_value(TIM4, TIM_OC3, val);
 }
 
 
@@ -395,7 +397,6 @@ int main(void)
 	
 	//check button status - as a toggle button, but we don't care about what it acutally is
 	uint16_t readButton = gpio_port_read(GPIOB);
-	buttonStatus = (bool) readButton & (GPIO0<<1);
 	
 	//while (1) {
 		for (int start = 0;start<10;start++){
@@ -403,10 +404,11 @@ int main(void)
 			for (int ticker=1;ticker<1000000/2;ticker++){
 				__asm__("nop");
 			}
+			setPWMVal(0);
 			for (int ticker=1;ticker<1000000/2;ticker++){
 				__asm__("nop");
 			}
-			//gpio_toggle(GPIOA, GPIO1);
+			//gpio_toggle(GPIOB, GPIO8);
 			gpio_toggle(GPIOC, GPIO13);
 			
 		}
@@ -415,14 +417,28 @@ int main(void)
 			for (int ticker=1;ticker<100000/2;ticker++){
 				__asm__("nop");
 			}
-			//setPWMVal(0);
+			setPWMVal(0);
 			for (int ticker=1;ticker<100000/2;ticker++){
 				__asm__("nop");
 			}
 			//gpio_toggle(GPIOA, GPIO1);
 			gpio_toggle(GPIOC, GPIO13);
 		}
+		
+	//}
 	setPWMVal(0);
+	
+	
+	
+	//setPWMVal(10000);
+	//while (1){};
+	
+	
+	
+	
+	
+	
+	
 	//}
 	/*
 	 * If the RTC is pre-configured just allow access, don't reconfigure.
@@ -489,17 +505,18 @@ int main(void)
 	
 	bool newButton;
 	while (1) {
+		//setPWMVal(20000);
 		__asm__("nop");
 		//usbInLoop(); //poll because usb
 		readButton = gpio_port_read(GPIOB);
-		newButton = (bool) (readButton & GPIO0);
+		newButton = (bool) (readButton & GPIO1);
 		if (buttonStatus!=newButton){
 			buttonStatus = newButton;
 			switch (overrideMode){
 				case 0:
 					setPWMVal(0);
 					overrideMode++;
-					override = 1;
+					override = 0;
 					break;
 				case 1:
 					setPWMVal(100);
@@ -514,10 +531,10 @@ int main(void)
 				case 3:
 					setPWMVal(20001);
 					overrideMode=0;
-					override = 0;
+					override = 1;
 					break;
 			}
-			for (int i=0;i<2000000;i++){ //delay to prevent bouncing
+			for (int i=0;i<5000000;i++){ //delay to prevent bouncing
 				__asm__("nop");
 			}
 		}
@@ -527,6 +544,7 @@ int main(void)
 
 	return 0;
 }
+
 
 
 
@@ -575,6 +593,18 @@ void handleMessage(uint8_t id, uint8_t msgBuf[]){
 			//set time
 			rtc_set_counter_val(hourBase*3600+minBase*60+secBase);
 			
+			// Flash light to acknowledge that it worked
+			for (int start = 0;start<10;start++){
+				setPWMVal(20000+1);
+				for (int ticker=1;ticker<100000/2;ticker++){
+					__asm__("nop");
+				}
+				setPWMVal(0);
+				for (int ticker=1;ticker<100000/2;ticker++){
+					__asm__("nop");
+				}
+				gpio_toggle(GPIOC, GPIO13);
+			}
 			
 			//set alarm
 			//setAlarmIfDay();
@@ -596,6 +626,18 @@ void handleMessage(uint8_t id, uint8_t msgBuf[]){
 			alarmList[msgBuf[0]].enabled = true;
 			alarmList[msgBuf[0]].triggered = false; //can't be bothered
 			
+			// Flash light to acknowledge that it worked
+			for (int start = 0;start<10;start++){
+				setPWMVal(20000+1);
+				for (int ticker=1;ticker<100000/2;ticker++){
+					__asm__("nop");
+				}
+				setPWMVal(0);
+				for (int ticker=1;ticker<100000/2;ticker++){
+					__asm__("nop");
+				}
+				gpio_toggle(GPIOC, GPIO13);
+			}
 			
 			break;
 		case 'o':
@@ -643,14 +685,14 @@ void rtc_isr(void)
 		min = (c % 3600)/60;// + minBase;
 		sec = (c % 3600) % 60;// + secBase;
 		
-		//usart_send_blocking(USART2, 't');
-		//usart_send_blocking(USART2, (uint16_t) hour >> 8);
-		//usart_send_blocking(USART2, (uint16_t) hour);
-		//usart_send_blocking(USART2, ':');
-		//usart_send_blocking(USART2, (uint16_t) min);
-		//usart_send_blocking(USART2, ':');
-		//usart_send_blocking(USART2, (uint16_t) sec);
-		//usart_send_blocking(USART2, '\n');
+		usart_send_blocking(USART2, 't');
+		usart_send_blocking(USART2, (uint16_t) hour >> 8);
+		usart_send_blocking(USART2, (uint16_t) hour);
+		usart_send_blocking(USART2, ':');
+		usart_send_blocking(USART2, (uint16_t) min);
+		usart_send_blocking(USART2, ':');
+		usart_send_blocking(USART2, (uint16_t) sec);
+		usart_send_blocking(USART2, '\n');
 
 
 	//	/* Display the current counter value in binary via USART2. */
@@ -877,21 +919,22 @@ bool checkCRC(uint32_t CRC){
 
 
 //Send
-void setSendData(uint16_t data[], uint16_t dataLength){
-	// dataLength < SENDBUFLENGTH
+void setSendData(uint16_t msgData[], uint16_t msgDataLength){
+	// msgDataLength < SENDBUFLENGTH
 	
 	
 	while (messageIndex>0) {}; //stall while waiting for TX to finish sending
 	//	the higher priority interrupt usart interrupt should mean this isn't
 	//	too long.	
-	messageLen = dataLength;
-	memcpy(message, data, dataLength);
+	// Multiple length by 2 as were using uint16's, but serial only works well with uint8s
+	messageLen = 2*msgDataLength;
+	memcpy(message, msgData, 2*msgDataLength);
+	nextSend = message[0];
 	/* Enable transmit interrupt so it sends back the data. */
 	USART_CR1(USART2) |= USART_CR1_TXEIE;	
 	
 	
 }
-
 
 //interrupt
 void usart2_isr(void)

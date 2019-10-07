@@ -1,0 +1,3 @@
+(fp_lib_table
+  (lib (name bluepill)(type KiCad)(uri D:/Users/Hayden/programming/projects/softlight/pcb/kicad-library/BluePill_breakouts.pretty)(options "")(descr ""))
+)

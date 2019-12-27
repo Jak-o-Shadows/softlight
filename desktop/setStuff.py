@@ -10,7 +10,7 @@ import datetime
 import binascii
 
 hr = 6
-minute = 0
+minute = 20
 alarmTime = datetime.datetime(year=2019, month=6, day=1, hour=hr, minute=minute, second=0)
 #alarmTime = datetime.datetime.now() + datetime.timedelta(minutes=2)
 #alarmTime = datetime.datetime.now() + datetime.timedelta(seconds=30)
@@ -18,7 +18,7 @@ alarmTime = datetime.datetime(year=2019, month=6, day=1, hour=hr, minute=minute,
 alarmEnd = alarmTime + datetime.timedelta(minutes=30)
 
 alarmDayOfWeek = [0, 1, 1, 1, 1, 1, 0] #Sunday -> Saturday
-alarmDayOfWeek = [1, 1, 1, 1, 1, 1, 1]
+#alarmDayOfWeek = [1, 1, 1, 1, 1, 1, 1]
 
 
 
@@ -34,7 +34,7 @@ def send(con, uint8_t):
 
 
 
-port = "COM5"
+port = "COM9"
 baud = "9600"
 
 con = serial.Serial(port=port, baudrate=baud)
@@ -126,9 +126,9 @@ hourEndString = hex(alarmEnd.hour)[2:].zfill(2)
 minuteEndString = hex(alarmEnd.minute)[2:].zfill(2)
 secondEndString = hex(alarmEnd.second)[2:].zfill(2)
 
-print("hour: ", now.hour, hourString)
-print("minute: ", now.minute, minuteString)
-print("second: ", now.second, secondString)
+print("hour: ", alarmTime.hour, hourString)
+print("minute: ", alarmTime.minute, minuteString)
+print("second: ", alarmTime.second, secondString)
 print("alarmDay: ", bin(alarmDay), alarmDayString)
 
 

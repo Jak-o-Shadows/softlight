@@ -177,9 +177,6 @@ static void usart_setup(void)
 	//enable interrupt rx
 	USART_CR1(USART2) |= USART_CR1_RXNEIE;
 
-	
-	
-	
 	usart_enable(USART2);
 }
 
@@ -445,13 +442,13 @@ int main(void)
 	 * Otherwise enable it with the LSE as clock source and 0x7fff as
 	 * prescale value.
 	 */
-	//rtc_auto_awake(RCC_LSE, 0x7fff);
-	rtc_auto_awake(RCC_HSE, 0xF3CD); //FFFE -> 1.05
+	rtc_auto_awake(RCC_LSE, 0x7fff);
+	//rtc_auto_awake(RCC_HSE, 0xFFFE); //FFFE -> 1.05 (0xF3CD)
 
 	/* Enable the RTC interrupt to occur off the SEC flag. */
 	rtc_interrupt_enable(RTC_SEC);
 	rtc_interrupt_enable(RTC_ALR);
-	rtc_set_counter_val(hourBase*3600+minBase*60+secBase);
+	rtc_set_counter_val(0);
 
 	//set initial alarm
 	//minAlarm = 50;
@@ -659,15 +656,12 @@ void handleMessage(uint8_t id, uint8_t msgBuf[]){
 }
 
 
-
-
 void rtc_isr(void)
 {
-	
-	
+
 	if (rtc_check_flag (RTC_SEC )){
-		
-		
+
+
 		volatile uint32_t c = 0;
 
 		/* The interrupt flag isn't cleared by hardware, we have to do it. */
@@ -677,110 +671,86 @@ void rtc_isr(void)
 		gpio_toggle(GPIOC, GPIO13);
 
 		c = rtc_get_counter_val();
-	//	c = c + 3600*hourBase;
-	//	c = c + 60*minBase;
-	//	c = c + secBase;
 
-		hour = c/3600;// + hourBase;
-		min = (c % 3600)/60;// + minBase;
-		sec = (c % 3600) % 60;// + secBase;
-		
-		usart_send_blocking(USART2, 't');
-		usart_send_blocking(USART2, (uint16_t) hour >> 8);
-		usart_send_blocking(USART2, (uint16_t) hour);
-		usart_send_blocking(USART2, ':');
-		usart_send_blocking(USART2, (uint16_t) min);
-		usart_send_blocking(USART2, ':');
-		usart_send_blocking(USART2, (uint16_t) sec);
-		usart_send_blocking(USART2, '\n');
+		hour = c/3600 + hourBase;
+		min = (c % 3600)/60 + minBase;
+		sec = (c % 3600) % 60 + secBase;
 
-
-	//	/* Display the current counter value in binary via USART2. */
-	//	for (j = 0; j < 32; j++) {
-	//		if ((c & (0x80000000 >> j)) != 0) {
-	//	//		usart_send_blocking(USART2, '1');
-	//		} else {
-	//	//		usart_send_blocking(USART2, '0');
-	//		}
-	//	}
-	//	//usart_send_blocking(USART2, '\n');
-		
-		
-		
-		if (hour == 24){
+		// Check if a day has passed
+		if (hour >= 24){
+			rtc_set_counter_val(0);
 			hour = 0;
-			rtc_set_counter_val(0x0000);
 			incrementDate();
 			//setAlarmIfDay();
 		}
-	}
-	
-	
-	for (int i=0;i<NUMALARMS;i++){
-		//if ((alarmList[i].alarmDays >> dayOfWeek) & (0x1 <<dayOfWeek)){ //should this be after the enabled check?
-		if (1==1) {
-			//Alarm is active this day of the wek
+		
+		// Now that time has incremented, check the alarms
+		for (int i=0;i<NUMALARMS;i++){
 			if (alarmList[i].enabled){
-				
-				uint8_t hourAlarm;
-				uint8_t minAlarm;
-				//uint8_t secAlarm;
-				
-				
-				//What time are we comparing?
-				if (!alarmList[i].triggered){
-					//normal alarm time
-					hourAlarm = alarmList[i].hour;
-					minAlarm = alarmList[i].min;
-					//secAlarm = alarmList[i].sec;
-				} else {
-					//alarm has been triggered => we want to switch it if it's time
-					hourAlarm = alarmList[i].hourEnd;
-					minAlarm = alarmList[i].minEnd;
-					//secAlarm = alarmList[i].secEnd;
-				}
-				
-				//Check if the alarm is triggered
-				if (hour == hourAlarm){
-					if (min==minAlarm){
-						//Set alarm state
-						if (!alarmList[i].triggered) {
-							alarmList[i].triggered = true;
-						} else {
-							alarmList[i].triggered = false;
+				if( alarmList[i].alarmDays & dayOfWeek ){  // Day of week is a bitfield
+					//Alarm is active this day of the week
+
+					uint8_t hourAlarm;
+					uint8_t minAlarm;
+					//uint8_t secAlarm;
+
+					//What time are we comparing?
+					if (!alarmList[i].triggered){
+						//normal alarm time
+						hourAlarm = alarmList[i].hour;
+						minAlarm = alarmList[i].min;
+						//secAlarm = alarmList[i].sec;
+					} else {
+						//alarm has been triggered => we want to switch it if it's time
+						hourAlarm = alarmList[i].hourEnd;
+						minAlarm = alarmList[i].minEnd;
+						//secAlarm = alarmList[i].secEnd;
+					}
+
+					//Check if the alarm is triggered
+					if (hour == hourAlarm){
+						if (min==minAlarm){
+							//Set alarm state
+							if (!alarmList[i].triggered) {
+								alarmList[i].triggered = true;
+							} else {
+								alarmList[i].triggered = false;
+							}
 						}
 					}
 				}
 			}
 		}
-	}
-	
-	
-	
-	bool on = false;
-	for (int i=0;i<NUMALARMS;i++){
-		if (alarmList[i].enabled){
-			if (alarmList[i].triggered) {
-				on = true;
-				break;
+
+
+		// Check overall status of the light
+		bool on = false;
+		for (int i=0;i<NUMALARMS;i++){
+			if (alarmList[i].enabled){
+				if (alarmList[i].triggered) {
+					on = true;
+					break;
+				}
 			}
 		}
-	}
-	
-
 		
-	if (!override) {
-		if (on){
-			//Turn light on
-			setPWMVal(20001);
-		} else{
-			//Turn light off
-			setPWMVal(0);
+
+		// Check if the torch button is pressed.
+		if (!override) {
+			if (on){
+				//Turn light on
+				setPWMVal(20001);
+			} else{
+				//Turn light off
+				setPWMVal(0);
+			}
+		} else {
+			//gpio_toggle(GPIOA, GPIO1);
 		}
-	} else {
-		//gpio_toggle(GPIOA, GPIO1);
+		
+		
 	}
-	
+
 	//check if it's the alarm interrupt
 	if (rtc_check_flag (RTC_ALR )){
 		//Clear the flag

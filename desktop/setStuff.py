@@ -5,59 +5,51 @@ Created on Sun May 07 15:28:30 2017
 @author: Jak
 """
 
+import serial
 import time
 import datetime
 import binascii
 
 hr = 6
 minute = 20
-alarmTime = datetime.datetime(year=2019, month=6, day=1, hour=hr, minute=minute, second=0)
+alarmTime = datetime.datetime(
+    year=2019, month=6, day=1, hour=hr, minute=minute, second=0)
 #alarmTime = datetime.datetime.now() + datetime.timedelta(minutes=2)
 #alarmTime = datetime.datetime.now() + datetime.timedelta(seconds=30)
 
 alarmEnd = alarmTime + datetime.timedelta(minutes=30)
 
-alarmDayOfWeek = [0, 1, 1, 1, 1, 1, 0] #Sunday -> Saturday
+alarmDayOfWeek = [0, 1, 1, 1, 1, 1, 0]  # Sunday -> Saturday
 #alarmDayOfWeek = [1, 1, 1, 1, 1, 1, 1]
 
 
-
-
-
-import serial
-
 def send(con, uint8_t):
-    #input("continue?")
+    # input("continue?")
     b1 = binascii.unhexlify(uint8_t)
     print("\t", b1)
     con.write(b1)
 
 
-
-port = "COM9"
+port = "COM4"
 baud = "9600"
 
 con = serial.Serial(port=port, baudrate=baud)
 
 
 # for i in range(29+1):
-    # send(con, hex(i)[2:].zfill(2))
+# send(con, hex(i)[2:].zfill(2))
 
 # import sys
 # sys.exit()
 
-
-
-
-#first, set the time
+# first, set the time
 
 now = datetime.datetime.now()
 #offset = datetime.timedelta(minutes=10)
 #now = datetime.datetime(2017, 5, 6, 6, 29, 0) - offset
-#print(now
+# print(now
 #now = now + offset
 print(now)
-
 
 
 yearString = hex(now.year)[-2:].zfill(2)
@@ -79,8 +71,8 @@ print("second: ", now.second, secondString)
 print("day of week",  bin(dayOfWeek), dayOfWeekString)
 
 
-#send a s
-#then MSB first:
+# send a s
+# then MSB first:
 #   year
 #   month
 #   day
@@ -100,21 +92,21 @@ send(con, minuteString)
 send(con, secondString)
 send(con, dayOfWeekString)
 crc = ["00", "00"]
-end ="EF"
+end = "EF"
 send(con, crc[0])
 send(con, crc[1])
 send(con, end)
 print("sent")
 
-#sending the second bit of data isn't currently working
+# sending the second bit of data isn't currently working
 #       The alarm default is 6:30, monday to friday -> bugger it
 #import sys
-#sys.exit()
+# sys.exit()
 
 time.sleep(4)
 
 
-#set alarm
+# set alarm
 print("alarm")
 
 hourString = hex(alarmTime.hour)[2:].zfill(2)
@@ -132,8 +124,8 @@ print("second: ", alarmTime.second, secondString)
 print("alarmDay: ", bin(alarmDay), alarmDayString)
 
 
-#send a a
-#then MSB first:
+# send a a
+# then MSB first:
 #   hour
 #   second
 #   alarm days
@@ -150,24 +142,17 @@ send(con, hourEndString)
 send(con, minuteEndString)
 send(con, secondEndString)
 crc = ["00", "00"]
-end ="EF"
+end = "EF"
 send(con, crc[0])
 send(con, crc[1])
 send(con, end)
 
-
-
-#override light
+# override light
 #send(con, start)
-#con.write("o")
+# con.write("o")
 #send(con, "01")
 #send(con, "FF")
 #crc = ["0", "0"]
 #send(con, crc[0])
 #send(con, crc[1])
 #send(con, end)
-
-
-
-
-

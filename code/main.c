@@ -15,6 +15,7 @@
 #include "stdint.h"
 #include "stdbool.h"
 #include <string.h> //For memcpy
+#include <stdio.h>	// For snprintf
 
 //#include "usbSerial.h"
 
@@ -116,6 +117,7 @@ void setPWMVal(uint32_t val);
 static bool isLeapYear(uint8_t yearLoc);
 static void setAlarm(uint8_t h, uint8_t m, uint8_t s);
 void setSendData(uint16_t msgData[], uint16_t msgDataLength);
+bool setSendStringDataNonBlocking(uint8_t msgData[], uint16_t msgDataLength);
 void handleMessage(uint8_t id, uint8_t msgBuf[]);
 
 ////////////////////////////////////////////////////////
@@ -671,6 +673,14 @@ void rtc_isr(void)
 		min = (c % 3600) / 60 + minBase;
 		sec = (c % 3600) % 60 + secBase;
 
+		if (sec == 1)
+		{
+			uint8_t msg[SENDBUFLEN];
+			uint16_t numCharacters = snprintf(msg, SENDBUFLEN, "Y%d:m%d:d%dH%d:M%d:S%d\n", year, month, day, hour, min, sec);
+
+			setSendStringDataNonBlocking(&msg, numCharacters);
+		}
+
 		// Check if a day has passed
 		if (hour >= 24)
 		{
@@ -932,6 +942,21 @@ void setSendData(uint16_t msgData[], uint16_t msgDataLength)
 	USART_CR1(USART2) |= USART_CR1_TXEIE;
 }
 
+bool setSendStringDataNonBlocking(uint8_t msgData[], uint16_t msgDataLength)
+{
+	// Send data, if possible all messages have been sent, and nothing waiting in the queue
+	if (messageIndex <= 0)
+	{
+		messageLen = msgDataLength;
+		memcpy(message, msgData, msgDataLength);
+		nextSend = message[0];
+		/* Enable transmit interrupt so it sends back the data. */
+		USART_CR1(USART2) |= USART_CR1_TXEIE;
+		return true;
+	}
+	return false;
+}
+
 //interrupt
 void usart2_isr(void)
 {
@@ -965,7 +990,6 @@ void usart2_isr(void)
 
 		/* Put data into the transmit register. */
 		usart_send(USART2, nextSend);
-		gpio_toggle(GPIOC, GPIO13);
 
 		messageIndex++;
 		if (messageIndex >= messageLen)

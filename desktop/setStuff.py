@@ -20,7 +20,7 @@ alarmTime = datetime.datetime(
 alarmEnd = alarmTime + datetime.timedelta(minutes=30)
 
 alarmDayOfWeek = [0, 1, 1, 1, 1, 1, 0]  # Sunday -> Saturday
-#alarmDayOfWeek = [1, 1, 1, 1, 1, 1, 1]
+alarmDayOfWeek = [1, 1, 1, 1, 1, 1, 1]
 
 
 def send(con, uint8_t):
@@ -50,7 +50,10 @@ now = datetime.datetime.now()
 # print(now
 #now = now + offset
 print(now)
-
+# now = datetime.datetime(year=2020, month=5, day=30,
+#                        hour=23, minute=58, second=0)
+#alarmTime = now + datetime.timedelta(minutes=3)
+#alarmEnd = alarmTime + datetime.timedelta(minutes=30)
 
 yearString = hex(now.year)[-2:].zfill(2)
 monthString = hex(now.month)[2:].zfill(2)

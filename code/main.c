@@ -585,7 +585,7 @@ void handleMessage(uint8_t id, uint8_t msgBuf[])
 		dayOfWeek = dayOfWeekBase;
 
 		//set time
-		rtc_set_counter_val(hourBase * 3600 + minBase * 60 + secBase);
+		rtc_set_counter_val(0); //hourBase * 3600 + minBase * 60 + secBase);
 
 		// Flash light to acknowledge that it worked
 		for (int start = 0; start < 10; start++)
@@ -669,15 +669,26 @@ void rtc_isr(void)
 
 		c = rtc_get_counter_val();
 
-		hour = c / 3600 + hourBase;
-		min = (c % 3600) / 60 + minBase;
-		sec = (c % 3600) % 60 + secBase;
+		c += 60 * 60 * hourBase;
+		c += minBase * 60;
+		c += secBase;
 
+		hour = c / 3600;	   // + hourBase;
+		min = (c % 3600) / 60; // + minBase;
+		sec = (c % 3600) % 60; // + secBase;
+
+		uint8_t msg[SENDBUFLEN];
+		uint16_t numCharacters;
 		if (sec == 1)
 		{
-			uint8_t msg[SENDBUFLEN];
-			uint16_t numCharacters = snprintf(msg, SENDBUFLEN, "Y%d:m%d:d%dH%d:M%d:S%d\n", year, month, day, hour, min, sec);
+			numCharacters = snprintf(msg, SENDBUFLEN, "Y%d:m%d:d%d:H%d:M%d:S%d\r\n", year, month, day, hour, min, sec);
 
+			setSendStringDataNonBlocking(&msg, numCharacters);
+		}
+		if ((sec % 5) == 0)
+		{
+			memset(msg, 0, SENDBUFLEN);
+			numCharacters = snprintf(msg, SENDBUFLEN, "\t%d\r\n", c);
 			setSendStringDataNonBlocking(&msg, numCharacters);
 		}
 
@@ -685,7 +696,9 @@ void rtc_isr(void)
 		if (hour >= 24)
 		{
 			rtc_set_counter_val(0);
-			hour = 0;
+			hourBase = 0;
+			minBase = 0;
+			secBase = 0;
 			incrementDate();
 			//setAlarmIfDay();
 		}
